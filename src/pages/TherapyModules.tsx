@@ -12,6 +12,8 @@ import { updateStreak } from '../utils/streakManager';
 import { getAllTherapies } from '../utils/therapyStorage';
 import { updateTherapyCompletion } from '../utils/therapyProgressManager';
 import { Therapy } from '../types/therapy';
+import { recordTherapyCompletion, getUserTherapyProgress } from '../utils/therapySessionManager';
+import toast from 'react-hot-toast';
 
 function TherapyModules() {
   const { user } = useAuth();
@@ -22,12 +24,27 @@ function TherapyModules() {
   const [todaysDate, setTodaysDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [userProgress, setUserProgress] = useState<any>(null);
   const [therapies, setTherapies] = useState<Therapy[]>([]);
+  const [therapySessionCounts, setTherapySessionCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     loadTherapies();
+    loadTherapySessionCounts();
     window.addEventListener('therapies-updated', loadTherapies);
     return () => window.removeEventListener('therapies-updated', loadTherapies);
-  }, []);
+  }, [user]);
+
+  const loadTherapySessionCounts = async () => {
+    if (!user?.id) return;
+
+    const progressData = await getUserTherapyProgress(user.id);
+    const counts: Record<string, number> = {};
+
+    progressData.forEach(progress => {
+      counts[progress.therapy_id] = progress.total_sessions_completed;
+    });
+
+    setTherapySessionCounts(counts);
+  };
 
   useEffect(() => {
     const savedProgress = localStorage.getItem('mindcare_user_progress');
@@ -67,7 +84,7 @@ function TherapyModules() {
     setTherapies(getAllTherapies().filter(t => t.status === 'Active'));
   };
 
-  const updateTherapyProgress = (moduleId: string) => {
+  const updateTherapyProgress = async (moduleId: string, moduleName: string) => {
     const currentDate = new Date().toISOString().split('T')[0];
 
     // Check if already completed today
@@ -80,8 +97,21 @@ function TherapyModules() {
     // Update streak
     updateStreak();
 
-    // Update therapy progress tracking
+    // Record therapy completion in database with incremental session count
     if (user?.id) {
+      const result = await recordTherapyCompletion(user.id, moduleId, moduleName);
+
+      if (result.success) {
+        // Update local session counts
+        setTherapySessionCounts(prev => ({
+          ...prev,
+          [moduleId]: result.sessionNumber
+        }));
+
+        toast.success(`Session ${result.sessionNumber} completed!`);
+      }
+
+      // Update legacy progress tracking
       updateTherapyCompletion(user.id, moduleId);
     }
 
@@ -185,7 +215,7 @@ function TherapyModules() {
   }));
 
   const handleStartModule = (module: any) => {
-    updateTherapyProgress(module.moduleId);
+    updateTherapyProgress(module.moduleId, module.title);
     navigate(module.route);
   };
 
@@ -331,10 +361,10 @@ function TherapyModules() {
 
               {/* Sessions Info */}
               <div className="flex items-center justify-between mb-3">
-                <span className={`text-xs ${
-                  theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                <span className={`text-xs font-semibold ${
+                  theme === 'dark' ? 'text-purple-400' : 'text-purple-600'
                 }`}>
-                  {module.sessions} sessions
+                  {therapySessionCounts[module.moduleId] || 0} {therapySessionCounts[module.moduleId] === 1 ? 'session' : 'sessions'} completed
                 </span>
                 <div className="flex items-center space-x-1">
                   {[...Array(5)].map((_, i) => (

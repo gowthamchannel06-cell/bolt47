@@ -113,18 +113,43 @@ function TherapistDashboard() {
 
     const loadProgressUpdates = () => {
       if (user?.id) {
-        const reports = getTherapistProgressReports(user.id);
-        const recentUpdates = reports
-          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-          .slice(0, 3)
-          .map(report => ({
+        // Load from new therapist progress reports
+        const therapistReports = JSON.parse(localStorage.getItem('mindcare_therapist_progress_reports') || '[]');
+        const myReports = therapistReports.filter((report: any) =>
+          report.therapistId === user.id || report.therapistName === user.name
+        );
+
+        const recentUpdates = myReports
+          .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+          .slice(0, 5)
+          .map((report: any) => ({
             id: report.id,
             patientName: report.patientName,
-            progress: report.summary.overallProgress,
-            completedSessions: report.summary.totalCompletedSessions,
+            progress: report.progressData?.totalSessions || 0,
+            therapiesInProgress: report.progressData?.therapiesInProgress || 0,
+            sessionDate: report.sessionDate,
+            sessionTime: report.sessionTime,
+            progressByTherapy: report.progressData?.progressByTherapy || [],
             time: getRelativeTime(report.timestamp)
           }));
+
         setRecentProgressUpdates(recentUpdates);
+
+        // Also load legacy reports
+        const legacyReports = getTherapistProgressReports(user.id);
+        if (legacyReports.length > 0 && recentUpdates.length === 0) {
+          const legacyUpdates = legacyReports
+            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+            .slice(0, 3)
+            .map(report => ({
+              id: report.id,
+              patientName: report.patientName,
+              progress: report.summary?.overallProgress || 0,
+              completedSessions: report.summary?.totalCompletedSessions || 0,
+              time: getRelativeTime(report.timestamp)
+            }));
+          setRecentProgressUpdates(legacyUpdates);
+        }
       }
     };
 

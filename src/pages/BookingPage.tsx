@@ -11,6 +11,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { trackPayment, trackSessionStart } from '../utils/analyticsManager';
+import { getAllUserProgressSummary } from '../utils/therapySessionManager';
 
 interface Therapist {
   id: string;
@@ -338,7 +339,7 @@ function BookingPage() {
     setShowPaymentModal(true);
   };
 
-  const handlePayment = () => {
+  const handlePayment = async () => {
     if (!selectedTherapist || !selectedDate || !selectedTime) {
       toast.error('Missing booking information');
       return;
@@ -371,6 +372,16 @@ function BookingPage() {
 
     const displayTime = convertTo12Hour(selectedTime);
 
+    // Fetch patient's therapy progress to send to therapist
+    let therapyProgressData = null;
+    if (user?.id) {
+      try {
+        therapyProgressData = await getAllUserProgressSummary(user.id);
+      } catch (error) {
+        console.error('Error fetching therapy progress:', error);
+      }
+    }
+
     // Create booking object ONLY after payment
     const booking: Appointment = {
       id: Date.now().toString(),
@@ -386,13 +397,32 @@ function BookingPage() {
       sessionType: 'video',
       patientEmail: user?.email || '',
       createdAt: new Date().toISOString(),
-      displayTime: displayTime
+      displayTime: displayTime,
+      therapyProgress: therapyProgressData
     };
 
     // Save confirmed booking to localStorage
     const existingBookings = JSON.parse(localStorage.getItem('mindcare_bookings') || '[]');
     existingBookings.push(booking);
     localStorage.setItem('mindcare_bookings', JSON.stringify(existingBookings));
+
+    // Save therapy progress report for therapist
+    if (therapyProgressData) {
+      const therapistReports = JSON.parse(localStorage.getItem('mindcare_therapist_progress_reports') || '[]');
+      therapistReports.push({
+        id: Date.now().toString(),
+        bookingId: booking.id,
+        patientId: user?.id,
+        patientName: user?.name,
+        therapistId: selectedTherapist.id,
+        therapistName: selectedTherapist.name,
+        timestamp: new Date().toISOString(),
+        sessionDate: selectedDate,
+        sessionTime: displayTime,
+        progressData: therapyProgressData
+      });
+      localStorage.setItem('mindcare_therapist_progress_reports', JSON.stringify(therapistReports));
+    }
 
     // Dispatch custom event for same-tab updates
     window.dispatchEvent(new Event('mindcare-data-updated'));
